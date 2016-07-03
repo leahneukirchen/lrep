@@ -1,0 +1,93 @@
+#!/usr/bin/env ruby
+# lrep [-z] [-t SECS] [FILES...] - literate read-eval-print
+
+# -*- ruby -*-
+
+require 'pty'
+require 'io/console'
+
+# TODO keep each session keyed by ps1?
+
+output = input = pid = nil
+
+trap(:SIGCHLD) { input = output = nil }
+
+def readp(output, ps)
+  return "[DEAD]"  if output == nil
+
+  o = ps ? output.readpartial(1024) : ""
+# p [:READ, o]
+  timeout = true
+  loop {
+    if o.split("\r\n").last =~ ps
+      timeout = false
+      break
+    end
+    if IO.select([output],[],[],0.04)
+      begin
+	x=output.readpartial(1024)
+      # p [:READ, x]
+	o << x
+      rescue Errno::EIO
+	# eof
+	break
+      end
+    else
+      break
+    end
+  }
+
+  o = "[TIMEOUT]\r\n" + o  if timeout && ps
+
+  l = o.split("\r\n")
+
+  if ps && l[-1]
+    l[-1].gsub!(ps, "")
+    l.pop  if l[-1].empty?
+  end
+  o = l.join("\n")
+
+  o
+end
+
+def ind(txt)
+  txt.split("\n").map { |l| "\t#{l}\n" }.join
+end
+
+ps = nil
+
+while line = gets
+  if line =~ /^\t!(.*?)(?:!(.*?))?!(.*)/
+    puts line
+    begin
+      if $1.empty? && $2.empty?
+	output = input = pid = nil
+	print ind(`#{$3}`)
+      else
+	if $1.empty?
+	  ps = nil
+	  psl = /^\t.*#{Regexp.quote $2}(.*)/
+	else
+	  ps = /.*?#{Regexp.union [$1,$2].compact}$/
+	  psl = /^\t.*?#{Regexp.union [$1,$2].compact}(.*)/
+	end
+	output, input, pid = PTY.spawn $3
+	input.echo = false
+	print ind(readp(output, ps))
+      end
+    rescue
+      print ind("ERROR: #{$!.message}")
+    end
+  elsif line =~ psl
+    puts line
+    if input
+#     p [:WRITE, $1 + "\n"]
+      input.write $1 + "\n"
+    end
+    print ind(readp(output, ps))
+  elsif line =~ /^\t/
+    # old output, remove
+  else
+    puts line
+  end
+end
