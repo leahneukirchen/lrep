@@ -78,10 +78,15 @@ while line = gets
 	  psl = /^\t.*?#{Regexp.union [$1,$2].compact}(.*)/
 	end
         next  if zap
-	output, input, pid = PTY.spawn $3
+
+        cmd = $3
+        silent = cmd.gsub!(/>-$/, '')
+
+	output, input, pid = PTY.spawn cmd
 	input.echo = false
         # more timeout to launch program
-	print ind(readp(output, ps, $timeout*20))
+        o = readp(output, ps, $timeout*20)
+	print ind(o)  unless silent
       end
     rescue
       print ind("ERROR: #{$!.message}")
@@ -90,10 +95,14 @@ while line = gets
     puts line
     next  if zap
     if input
-#     p [:WRITE, $1 + "\n"]
-      input.write $1 + "\n"
+      cmd = $1
+      silent = cmd.gsub!(/>-$/, '')
+
+#     p [:WRITE, cmd + "\n"]
+      input.write cmd + "\n"
+      o = readp(output, ps)
+      print ind(o)  unless silent
     end
-    print ind(readp(output, ps))
   elsif line =~ /^\t/
     # old output, remove
   else
