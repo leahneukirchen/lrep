@@ -71,7 +71,11 @@ while line = gets
         kill pid
 	output = input = pid = nil
         next  if zap
-	print ind(`#{$3}`)
+
+        cmd = $3
+        silent = cmd.gsub!(/>-$/, '')
+        o = `#{cmd}`
+	print ind(o)  unless silent
       else
 	if $1.empty?
 	  ps = nil
