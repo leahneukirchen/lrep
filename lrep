@@ -2,9 +2,14 @@
 # lrep [-z] [-t SECS] [FILES...] - literate read-eval-print
 
 # -*- ruby -*-
-
 require 'pty'
 require 'io/console'
+require 'optparse'
+
+params = ARGV.getopts("t:z")
+
+zap = params["z"]
+$timeout = params["t"] ? params["t"].to_f : 0.04
 
 # TODO keep each session keyed by ps1?
 
@@ -12,18 +17,18 @@ output = input = pid = nil
 
 trap(:SIGCHLD) { input = output = nil }
 
-def readp(output, ps)
+def readp(output, ps, timeout=$timeout)
   return "[DEAD]"  if output == nil
 
   o = ps ? output.readpartial(1024) : ""
 # p [:READ, o]
-  timeout = true
+  timedout = true
   loop {
     if o.split("\r\n").last =~ ps
-      timeout = false
+      timedout = false
       break
     end
-    if IO.select([output],[],[],0.04)
+    if IO.select([output],[],[],timeout)
       begin
 	x=output.readpartial(1024)
       # p [:READ, x]
@@ -37,7 +42,7 @@ def readp(output, ps)
     end
   }
 
-  o = "[TIMEOUT]\r\n" + o  if timeout && ps
+  o = "[TIMEOUT]\r\n" + o  if timedout && ps
 
   l = o.split("\r\n")
 
@@ -62,6 +67,7 @@ while line = gets
     begin
       if $1.empty? && $2.empty?
 	output = input = pid = nil
+        next  if zap
 	print ind(`#{$3}`)
       else
 	if $1.empty?
@@ -71,15 +77,18 @@ while line = gets
 	  ps = /.*?#{Regexp.union [$1,$2].compact}$/
 	  psl = /^\t.*?#{Regexp.union [$1,$2].compact}(.*)/
 	end
+        next  if zap
 	output, input, pid = PTY.spawn $3
 	input.echo = false
-	print ind(readp(output, ps))
+        # more timeout to launch program
+	print ind(readp(output, ps, $timeout*20))
       end
     rescue
       print ind("ERROR: #{$!.message}")
     end
   elsif line =~ psl
     puts line
+    next  if zap
     if input
 #     p [:WRITE, $1 + "\n"]
       input.write $1 + "\n"
