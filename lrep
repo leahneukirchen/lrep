@@ -7,21 +7,13 @@ require 'io/console'
 require 'optparse'
 
 params = ARGV.getopts("t:z")
-
 zap = params["z"]
 $timeout = params["t"] ? params["t"].to_f : 0.04
-
-# TODO keep each session keyed by ps1?
-
-output = input = pid = nil
-
-trap(:SIGCHLD) { input = output = nil }
 
 def readp(output, ps, timeout=$timeout)
   return "[DEAD]"  if output == nil
 
   o = ps ? output.readpartial(1024) : ""
-# p [:READ, o]
   timedout = true
   loop {
     if o.split("\r\n").last =~ ps
@@ -30,9 +22,7 @@ def readp(output, ps, timeout=$timeout)
     end
     if IO.select([output],[],[],timeout)
       begin
-	x=output.readpartial(1024)
-      # p [:READ, x]
-	o << x
+	o << output.readpartial(1024)
       rescue Errno::EIO
 	# eof
 	break
@@ -50,14 +40,26 @@ def readp(output, ps, timeout=$timeout)
     l[-1].gsub!(ps, "")
     l.pop  if l[-1].empty?
   end
-  o = l.join("\n")
-
-  o
+  l.join("\n")
 end
 
 def ind(txt)
   txt.split("\n").map { |l| "\t#{l}\n" }.join
 end
+
+def kill(pid)
+  if pid
+    n = 0
+    until Process.waitpid(pid, Process::WNOHANG)
+      Process.kill(n > 10 ? "KILL" : "TERM", pid)
+      sleep 0.1
+      n += 1
+    end
+  end
+end
+
+output = input = pid = nil
+trap(:SIGCHLD) { input = output = nil }
 
 ps = nil
 
@@ -66,6 +68,7 @@ while line = gets
     puts line
     begin
       if $1.empty? && $2.empty?
+        kill pid
 	output = input = pid = nil
         next  if zap
 	print ind(`#{$3}`)
@@ -82,10 +85,11 @@ while line = gets
         cmd = $3
         silent = cmd.gsub!(/>-$/, '')
 
+        kill pid
 	output, input, pid = PTY.spawn cmd
 	input.echo = false
         # more timeout to launch program
-        o = readp(output, ps, $timeout*20)
+        o = readp(output, ps, 20*$timeout)
 	print ind(o)  unless silent
       end
     rescue
@@ -98,7 +102,6 @@ while line = gets
       cmd = $1
       silent = cmd.gsub!(/>-$/, '')
 
-#     p [:WRITE, cmd + "\n"]
       input.write cmd + "\n"
       o = readp(output, ps)
       print ind(o)  unless silent
@@ -110,11 +113,4 @@ while line = gets
   end
 end
 
-if pid
-  n = 0
-  until Process.waitpid(pid, Process::WNOHANG)
-    Process.kill(n > 10 ? "KILL" : "TERM", pid)
-    sleep 0.1
-    n += 1
-  end
-end
+kill pid
