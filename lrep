@@ -91,3 +91,12 @@ while line = gets
     puts line
   end
 end
+
+if pid
+  n = 0
+  until Process.waitpid(pid, Process::WNOHANG)
+    Process.kill(n > 10 ? "KILL" : "TERM", pid)
+    sleep 0.1
+    n += 1
+  end
+end
